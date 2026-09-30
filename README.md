@@ -3,13 +3,33 @@
 A dual-layer blockchain simulation where Nostr-style events act as tradeable
 IOUs 1:1 backed by Bitcoin locked in HTLCs.
 
-- **Layer 1** — canonical settlement chain. Validates HTLC backing against a
-  Bitcoin full node (RPC interface + simulated in-memory node), mints/burns
-  IOUs, enforces protocol-mandated automatic preimage reveal, and anchors
-  Layer 2 checkpoints.
-- **Layer 2** — fast-lane chain for low-latency P2P IOU transfers, mined
-  every 10ms with checkpoints committed back to Layer 1 every 1,000 blocks
-  (~10s).
+### Terminology note: three chains, not two
+
+It's easy to read "Layer 1" / "Layer 2" here and assume Layer 1 *is* the
+Bitcoin blockchain. It isn't. There are conceptually **three** chains
+involved, and this repo's code/spec naming (`Layer1Chain`, `Layer2Chain`,
+fields like `layer2_state_root`, `bitcoin_block_height`, etc.) refers to the
+*second and third* of them:
+
+| In conversation | In this repo's code/spec | Role |
+| --- | --- | --- |
+| **L1** | *(external, not implemented here)* | The real Bitcoin blockchain. Only holds the locked HTLC funds. Accessed read-only via `BitcoinRpcClient` / `SimulatedBitcoinNode`. |
+| **L2** | called **"Layer 1"** (`src/l1`, `Layer1Chain`) | This system's own canonical settlement chain (100ms blocks). Verifies Bitcoin HTLCs before minting IOUs, watches Bitcoin for HTLC spends before burning them, anchors L3 checkpoints. |
+| **L3** | called **"Layer 2"** (`src/l2`, `Layer2Chain`) | This system's own fast-lane trading chain (10ms blocks) built on top of the settlement chain, for low-latency P2P IOU transfers. |
+
+The code, file paths, and field names (e.g. `layer2_state_root`,
+`layer2_block_range`) intentionally keep the original spec's "Layer
+1/Layer 2" naming for the two chains this project implements, since that's
+the exact block format the system was built against. This table is just to
+make the three-chain relationship to real Bitcoin unambiguous.
+
+- **"Layer 1" (settlement chain, = L2 above)** — canonical settlement chain.
+  Validates HTLC backing against a Bitcoin full node (RPC interface +
+  simulated in-memory node), mints/burns IOUs, enforces protocol-mandated
+  automatic preimage reveal, and anchors Layer 2 checkpoints.
+- **"Layer 2" (fast-lane chain, = L3 above)** — fast-lane chain for
+  low-latency P2P IOU transfers, mined every 10ms with checkpoints
+  committed back to "Layer 1" every 1,000 blocks (~10s).
 
 ## Layout
 

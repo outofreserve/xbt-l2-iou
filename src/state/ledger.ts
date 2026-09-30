@@ -15,17 +15,19 @@ export class Ledger {
 
   /** Credits `holder` with `amount` IOUs issued by `issuer`. Used on iou_creation and transfer-in. */
   credit(issuer: Pubkey, holder: Pubkey, amount: number): void {
-    if (amount < 0) throw new Error('credit amount must be non-negative');
+    if (!Number.isSafeInteger(amount) || amount < 0) throw new Error('credit amount must be a non-negative safe integer');
     const key = ledgerKey(issuer, holder);
-    this.balances.set(key, (this.balances.get(key) ?? 0) + amount);
+    const next = (this.balances.get(key) ?? 0) + amount;
+    if (!Number.isSafeInteger(next)) throw new Error('balance exceeds safe integer range');
+    this.balances.set(key, next);
   }
 
   /** Debits `holder`'s balance of `issuer`'s IOUs. Throws on insufficient balance. */
   debit(issuer: Pubkey, holder: Pubkey, amount: number): void {
-    if (amount < 0) throw new Error('debit amount must be non-negative');
+    if (!Number.isSafeInteger(amount) || amount < 0) throw new Error('debit amount must be a non-negative safe integer');
     const key = ledgerKey(issuer, holder);
     const current = this.balances.get(key) ?? 0;
-    if (current < amount - 1e-9) {
+    if (current < amount) {
       throw new Error(
         `insufficient balance: ${holder} has ${current} of issuer ${issuer}'s IOUs, needs ${amount}`,
       );

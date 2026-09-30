@@ -7,7 +7,7 @@
   "main": "dist/main.js",
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "start": "tsx main.ts",
+    "start": "node dist/main.js",
     "demo": "tsx main.ts",
     "test": "vitest run",
     "test:watch": "vitest"

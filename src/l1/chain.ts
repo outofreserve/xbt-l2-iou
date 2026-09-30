@@ -66,6 +66,7 @@ export class Layer1Chain {
   private spendRequested = new Set<string>(); // htlc addresses we've asked Bitcoin to spend
   private lastObservedConfirmations = new Map<string, number>();
   private log: string[] = [];
+  private appliedEventIds = new Set<string>();
 
   constructor(opts: L1ChainOptions) {
     this.bitcoin = opts.bitcoinClient;
@@ -88,6 +89,10 @@ export class Layer1Chain {
     return this.state.ledger.getBalance(issuer, holder);
   }
 
+  hasAppliedEvent(id: string): boolean {
+    return this.appliedEventIds.has(id);
+  }
+
   private logLine(msg: string): void {
     this.log.push(msg);
     // eslint-disable-next-line no-console
@@ -106,6 +111,9 @@ export class Layer1Chain {
   async submitEvent(event: IouEvent): Promise<SubmitResult> {
     const schemaResult = validateEventSchema(event);
     if (!schemaResult.valid) return { accepted: false, errors: schemaResult.errors };
+    if (this.appliedEventIds.has(event.id) || this.mempool.has(event.id)) {
+      return { accepted: false, errors: ['event already submitted'] };
+    }
 
     if (event.kind === EventKind.IOU_CREATION) {
       const htlcResult = await validateHtlcCreation(event, this.bitcoin);
@@ -113,8 +121,8 @@ export class Layer1Chain {
     }
 
     if (event.kind === EventKind.REDEMPTION_REQUEST) {
-      const bal = this.state.ledger.getBalance(event.issuer, event.holder);
-      if (bal < event.amount - 1e-9) {
+      const bal = this.state.availableBalance(event.issuer, event.holder);
+      if (bal < event.amount) {
         return { accepted: false, errors: [`insufficient balance: ${bal} < ${event.amount}`] };
       }
     }
@@ -233,7 +241,15 @@ export class Layer1Chain {
     const batch = this.mempool.popBatch(L1_PARAMS.eventsPerBlock);
     for (const event of batch) {
       try {
+        if (event.kind === EventKind.IOU_CREATION) {
+          const result = await validateHtlcCreation(event, this.bitcoin);
+          if (!result.valid) {
+            this.logLine(`event ${event.id} rejected: ${result.errors.join(', ')}`);
+            continue;
+          }
+        }
         this.state.applyEvent(event, { minerAddress: this.minerAddress });
+        this.appliedEventIds.add(event.id);
         blockEvents.push(event);
         if (event.kind === EventKind.TRANSFER) {
           feesCollected.push({ sender: event.from, amount_satoshis: event.fee });

@@ -55,6 +55,7 @@ export class Layer2Chain {
   private lastRetargetTimestamp = Date.now();
   private lastCheckpointHeight = 0;
   private log: string[] = [];
+  private appliedEventIds = new Set<string>();
 
   constructor(opts: L2ChainOptions) {
     this.relay = opts.relay;
@@ -96,6 +97,7 @@ export class Layer2Chain {
       fresh.credit(issuer, holder, amount);
     }
     this.ledger = fresh;
+    this.mempool.clear();
     this.logLine(`resynced L2 ledger from Layer 1 (${l1Entries.length} balances)`);
   }
 
@@ -110,9 +112,12 @@ export class Layer2Chain {
     }
     const schemaResult = validateEventSchema(event);
     if (!schemaResult.valid) return { accepted: false, errors: schemaResult.errors };
+    if (this.appliedEventIds.has(event.id) || this.mempool.has(event.id) || this.l1Chain.hasAppliedEvent(event.id)) {
+      return { accepted: false, errors: ['event already submitted'] };
+    }
 
     const bal = this.ledger.getBalance(event.issuer, event.from);
-    if (bal < event.amount + event.fee - 1e-9) {
+    if (bal < event.amount + event.fee) {
       return { accepted: false, errors: [`insufficient L2 balance: ${bal} < ${event.amount + event.fee}`] };
     }
 
@@ -142,9 +147,14 @@ export class Layer2Chain {
 
     for (const event of batch) {
       try {
+        if (this.l1Chain.hasAppliedEvent(event.id)) {
+          this.logLine(`transfer ${event.id} already settled on L1`);
+          continue;
+        }
         this.ledger.debit(event.issuer, event.from, event.amount + event.fee);
         this.ledger.credit(event.issuer, event.to, event.amount);
         this.ledger.credit(event.issuer, this.minerAddress, event.fee);
+        this.appliedEventIds.add(event.id);
         blockEvents.push(event);
         feesCollected.push({ sender: event.from, amount_satoshis: event.fee });
       } catch (err) {

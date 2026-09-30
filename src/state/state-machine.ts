@@ -37,6 +37,14 @@ export class StateMachine {
   private mintedTotal = new Map<Pubkey, number>();
   private burnedTotal = new Map<Pubkey, number>();
 
+  availableBalance(issuer: Pubkey, holder: Pubkey): number {
+    let reserved = 0;
+    for (const pr of this.pendingRedemptions.values()) {
+      if (!pr.confirmed && pr.issuer === issuer && pr.holder === holder) reserved += pr.amount;
+    }
+    return this.ledger.getBalance(issuer, holder) - reserved;
+  }
+
   totalMinted(issuer?: Pubkey): number {
     if (issuer) return this.mintedTotal.get(issuer) ?? 0;
     return [...this.mintedTotal.values()].reduce((a, b) => a + b, 0);
@@ -65,6 +73,10 @@ export class StateMachine {
             `HTLC already registered: ${event.btc_htlc_address}`,
           );
         }
+        if (!Number.isSafeInteger(this.totalMinted(event.issuer) + event.amount_satoshis) ||
+            !Number.isSafeInteger(this.ledger.getBalance(event.issuer, event.issuer) + event.amount_satoshis)) {
+          throw new StateTransitionError('mint exceeds safe integer range');
+        }
         this.htlcRegistry.register({
           htlc_address: event.btc_htlc_address,
           issuer: event.issuer,
@@ -87,10 +99,10 @@ export class StateMachine {
       }
 
       case EventKind.REDEMPTION_REQUEST: {
-        const bal = this.ledger.getBalance(event.issuer, event.holder);
-        if (bal < event.amount - 1e-9) {
+        const bal = this.availableBalance(event.issuer, event.holder);
+        if (this.pendingRedemptions.has(event.id) || bal < event.amount) {
           throw new StateTransitionError(
-            `redemption_request exceeds balance: holder=${event.holder} issuer=${event.issuer} bal=${bal} amount=${event.amount}`,
+            `redemption_request already pending or exceeds available balance: holder=${event.holder} issuer=${event.issuer} bal=${bal} amount=${event.amount}`,
           );
         }
         this.pendingRedemptions.set(event.id, {
@@ -127,6 +139,9 @@ export class StateMachine {
 
       case EventKind.TRANSFER: {
         const totalDebit = event.amount + event.fee;
+        if (this.availableBalance(event.issuer, event.from) < totalDebit) {
+          throw new StateTransitionError('transfer exceeds unreserved balance');
+        }
         this.ledger.debit(event.issuer, event.from, totalDebit);
         this.ledger.credit(event.issuer, event.to, event.amount);
         if (event.fee > 0 && context.minerAddress) {
@@ -161,6 +176,10 @@ export class StateMachine {
     if (pr.confirmed) return;
     const htlc = this.htlcRegistry.get(htlcAddress);
     if (!htlc) throw new StateTransitionError(`unknown HTLC: ${htlcAddress}`);
+    if (htlc.issuer !== pr.issuer || !pr.preimageRevealed || pr.htlcAddress !== htlcAddress ||
+        pr.amount > htlc.amount_locked - htlc.amount_redeemed) {
+      throw new StateTransitionError('redemption is not backed by the designated HTLC');
+    }
     this.ledger.burn(pr.issuer, pr.holder, pr.amount);
     this.htlcRegistry.applyRedemption(htlcAddress, pr.amount);
     this.burnedTotal.set(pr.issuer, (this.burnedTotal.get(pr.issuer) ?? 0) + pr.amount);

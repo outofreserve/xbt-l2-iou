@@ -52,42 +52,79 @@ function fail(...errors: string[]): ValidationResult {
   return { valid: false, errors };
 }
 
+function validPubkey(value: unknown): boolean {
+  return typeof value === 'string' && /^(?:[0-9a-f]{64}|0[23][0-9a-f]{64})$/.test(value);
+}
+
 /** Structural + signature validation, independent of external state (ledger/Bitcoin). */
 export function validateEventSchema(event: IouEvent): ValidationResult {
+  if (!event || typeof event !== 'object') return fail('invalid event');
   const errors: string[] = [];
 
-  if (!event.id || !event.sig || !event.pubkey) errors.push('missing id/sig/pubkey');
-  if (!verifyEventSignature(event)) errors.push('invalid signature');
+  if (typeof event.id !== 'string' || typeof event.sig !== 'string' || typeof event.pubkey !== 'string' ||
+      !event.id || !event.sig || !event.pubkey) errors.push('missing id/sig/pubkey');
+  if (!validPubkey(event.pubkey)) errors.push('invalid pubkey');
+  if (!Number.isSafeInteger(event.created_at) || event.created_at < 0) errors.push('invalid created_at');
+  try {
+    if (!verifyEventSignature(event)) errors.push('invalid signature');
+  } catch {
+    errors.push('invalid signature');
+  }
 
   switch (event.kind) {
     case EventKind.IOU_CREATION:
+      if (event.type !== 'iou_creation') errors.push('invalid event type');
       if (!event.btc_htlc_address) errors.push('missing btc_htlc_address');
       if (!event.btc_txid) errors.push('missing btc_txid');
-      if (event.amount_satoshis <= 0) errors.push('amount_satoshis must be positive');
+      if (!Number.isSafeInteger(event.btc_output_index) || event.btc_output_index < 0)
+        errors.push('invalid btc_output_index');
+      if (!Number.isSafeInteger(event.amount_satoshis) || event.amount_satoshis <= 0)
+        errors.push('amount_satoshis must be a positive safe integer');
       if (!event.preimage_hash) errors.push('missing preimage_hash');
       if (event.issuer !== event.pubkey) errors.push('issuer must sign its own iou_creation event');
       break;
     case EventKind.REDEMPTION_REQUEST:
-      if (event.amount <= 0) errors.push('amount must be positive');
+      if (event.type !== 'redemption_request') errors.push('invalid event type');
+      if (!validPubkey(event.holder) || !validPubkey(event.issuer)) errors.push('invalid holder/issuer');
+      if (!Number.isSafeInteger(event.amount) || event.amount <= 0)
+        errors.push('amount must be a positive safe integer');
       if (event.holder !== event.pubkey) errors.push('holder must sign their own redemption_request');
       break;
     case EventKind.PREIMAGE_REVEAL:
-      if (!event.preimage || !event.preimage_hash) errors.push('missing preimage/preimage_hash');
+      if (event.type !== 'preimage_reveal') errors.push('invalid event type');
+      if (typeof event.preimage !== 'string' || !/^(?:[0-9a-f]{2})+$/.test(event.preimage) ||
+          typeof event.preimage_hash !== 'string' || !/^[0-9a-f]{64}$/.test(event.preimage_hash))
+        errors.push('invalid preimage/preimage_hash');
       if (event.issuer !== event.pubkey) errors.push('issuer must sign its own preimage_reveal');
       break;
     case EventKind.TRANSFER:
-      if (event.amount <= 0) errors.push('amount must be positive');
-      if (event.fee < 0) errors.push('fee must be non-negative');
+      if (event.type !== 'transfer') errors.push('invalid event type');
+      if (!validPubkey(event.from) || !validPubkey(event.to) || !validPubkey(event.issuer))
+        errors.push('invalid from/to/issuer');
+      if (!Number.isSafeInteger(event.amount) || event.amount <= 0)
+        errors.push('amount must be a positive safe integer');
+      if (!Number.isSafeInteger(event.fee) || event.fee < 0)
+        errors.push('fee must be a non-negative safe integer');
+      if (!Number.isSafeInteger(event.amount + event.fee))
+        errors.push('amount plus fee exceeds safe integer range');
       if (event.from !== event.pubkey) errors.push('sender must sign their own transfer');
       break;
     case EventKind.CHECKPOINT:
+      if (event.type !== 'checkpoint') errors.push('invalid event type');
       if (!event.layer2_state_root) errors.push('missing layer2_state_root');
-      if (event.layer2_block_range[0] > event.layer2_block_range[1])
+      if (!Array.isArray(event.layer2_block_range) || event.layer2_block_range.length !== 2 ||
+          !event.layer2_block_range.every((n) => Number.isSafeInteger(n) && n >= 0) ||
+          event.layer2_block_range[0] > event.layer2_block_range[1])
         errors.push('invalid layer2_block_range');
       break;
     case EventKind.FEE_SIGNAL:
-      if (event.min_fee_satoshis < 0) errors.push('min_fee_satoshis must be non-negative');
+      if (event.type !== 'fee_signal') errors.push('invalid event type');
+      if (!validPubkey(event.miner)) errors.push('invalid miner');
+      if (!Number.isSafeInteger(event.min_fee_satoshis) || event.min_fee_satoshis < 0)
+        errors.push('min_fee_satoshis must be a non-negative safe integer');
       break;
+    default:
+      errors.push('unknown event kind');
   }
 
   return errors.length ? fail(...errors) : ok();

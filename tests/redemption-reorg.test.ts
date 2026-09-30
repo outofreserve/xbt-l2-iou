@@ -142,6 +142,29 @@ describe('redemption flow: automatic preimage reveal + Bitcoin-confirmed burn', 
     expect(l1.state.totalBurned(issuer.publicKey)).toBe(amount);
   });
 
+  it('does not burn IOUs for an HTLC spend with the wrong preimage', async () => {
+    const holder = generateKeyPair();
+    const { issuer, address, amount } = await mintAndAllocate(holder);
+    const redemption = createEvent<RedemptionRequestEvent>({
+      pubkey: holder.publicKey,
+      created_at: Date.now(),
+      kind: EventKind.REDEMPTION_REQUEST,
+      type: 'redemption_request',
+      holder: holder.publicKey,
+      issuer: issuer.publicKey,
+      amount,
+    }, holder.privateKey);
+    await l1.submitEvent(redemption);
+    await l1.mineBlock();
+    await l1.mineBlock();
+    await l1.mineBlock(); // broadcasts the spend
+    await bitcoin.spendHtlc({ address, preimage: randomBytes(32).toString('hex') });
+    await bitcoin.mineBlocks(6);
+    await l1.mineBlock();
+    expect(l1.getLedgerBalance(issuer.publicKey, holder.publicKey)).toBe(amount);
+    expect(l1.state.totalBurned(issuer.publicKey)).toBe(0);
+  });
+
   it('handles a Bitcoin reorg by marking the HTLC reorg_pending until re-stabilized', async () => {
     const holder = generateKeyPair();
     const { issuer, address, amount } = await mintAndAllocate(holder);

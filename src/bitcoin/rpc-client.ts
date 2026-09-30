@@ -15,13 +15,11 @@
  *    endpoint (`getblockcount`, `gettxout`, `getrawtransaction`,
  *    `decodescript`, `getrawmempool`, `getblockhash`/`getblock` for reorg
  *    detection, etc).
- * 2. `lockHtlc` / `spendHtlc` are simulation-only conveniences (they don't
- *    exist on real bitcoind) used to drive `SimulatedBitcoinNode` from
- *    tests/demos; a real client only needs to implement the read-only
- *    surface (`getUtxo`, `getConfirmations`, `findHtlcSpend`,
- *    `getBlockCount`, `getBestBlockHash`, `onNewBlock`).
- * 3. Pass the real client into `Layer1Chain` in place of
- *    `SimulatedBitcoinNode` — no other code changes needed.
+ * 2. `lockHtlc`, `spendHtlc`, `mineBlocks`, and `forceReorg` are
+ *    simulation-only helpers currently required by this interface.
+ *    A real adapter requires separating wallet/broadcast operations from
+ *    the read-only validation surface and redesigning redemption settlement.
+ *    Swapping clients alone does not make this system safe for real funds.
  */
 
 export interface UtxoInfo {

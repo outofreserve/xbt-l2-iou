@@ -51,11 +51,27 @@ main.ts         end-to-end demo scenario
 ## Running
 
 ```bash
-npm install
+npm ci
 npm run build   # tsc emit to dist/
 npm test        # vitest run
-npm start        # runs the end-to-end demo (tsx main.ts)
+npm start       # runs the compiled end-to-end simulation
+npm run demo    # runs the TypeScript simulation directly
 ```
+
+## Deployment status
+
+**Do not use this program to custody Bitcoin or issue redeemable claims.**
+`main.ts` runs a single-process, in-memory demonstration, not a networked
+service. State, keys, mempool, and preimages are lost on restart; the Bitcoin
+client only simulates HTLCs and spends. There is no Bitcoin Core RPC adapter,
+real HTLC script construction/verification, transaction broadcasting, durable
+consensus, authenticated relay, or recovery from a reorg after a burn. L2
+checkpoints do not settle L2 transfers into L1 balances, and resynchronizing
+from L1 discards L2-only balance changes. A single HTLC spend consumes its
+entire UTXO even when this simulation records a partial redemption. These
+limitations require protocol design, persistence, and adversarial testing
+before any real-funds deployment; configuring a production environment alone
+cannot resolve them.
 
 ## Demo scenario (`main.ts`)
 
@@ -81,14 +97,16 @@ throughput, state resync time) are printed at the end.
 ## Swapping in a real Bitcoin node
 
 `src/bitcoin/rpc-client.ts` defines a `BitcoinRpcClient` interface
-(`getUtxo`, `getBlockHeight`, `findHtlcSpend`, `getMempoolTx`, ...). This
+(`getUtxo`, `getBlockCount`, `findHtlcSpend`, `getBestBlockHash`, ...). This
 project uses `SimulatedBitcoinNode` (`src/bitcoin/simulated-node.ts`), a
 purely in-memory implementation, so the whole system runs without any real
 Bitcoin infrastructure. To go live, implement the same interface against a
 real `bitcoind` (e.g. via JSON-RPC using `getrawtransaction`,
 `gettxout`/`gettxoutproof`, `getblockcount`, mempool/ZMQ watching for HTLC
-spends) and pass that implementation to `Layer1Chain` instead — no other
-code needs to change.
+spends). The interface currently also requires simulation-only methods
+(`lockHtlc`, `spendHtlc`, `mineBlocks`, `forceReorg`), so replacing the node
+alone is **not** enough to deploy: redemption broadcasting and the protocol's
+fund custody and settlement rules must first be redesigned and verified.
 
 ## Notes / simplifications
 

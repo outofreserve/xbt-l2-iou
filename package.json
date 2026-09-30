@@ -1,0 +1,25 @@
+{
+  "name": "btc-l2-iou-system",
+  "version": "0.1.0",
+  "description": "Bitcoin Layer 2 IOU System — dual-layer blockchain simulation using Nostr-style events as tradeable IOUs backed 1:1 by Bitcoin locked in HTLCs.",
+  "private": true,
+  "type": "module",
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "tsx main.ts",
+    "demo": "tsx main.ts",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@noble/hashes": "^1.4.0",
+    "@noble/secp256k1": "^2.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "tsx": "^4.16.2",
+    "typescript": "^5.5.4",
+    "vitest": "^1.6.0"
+  }
+}

@@ -179,6 +179,11 @@ export class Layer1Chain {
 
       const spend = await this.bitcoin.findHtlcSpend(pr.htlcAddress);
       if (!spend) continue;
+      if (spend.preimage !== htlc.preimage ||
+          sha256Hex(Buffer.from(spend.preimage, 'hex')) !== htlc.preimage_hash) {
+        this.logLine(`redemption ${pr.id}: Bitcoin spend preimage does not match HTLC`);
+        continue;
+      }
 
       const prevConfirmations = this.lastObservedConfirmations.get(pr.htlcAddress) ?? 0;
       if (spend.confirmations < REQUIRED_CONFIRMATIONS) {
